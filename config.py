@@ -1,0 +1,8 @@
+# Rewards and Penalties
+PASSENGER_PICKUP_REWARD = 2
+RESET_COST = -2
+COLLISION_PENALTY = -1
+
+# Simulation Settings
+DEFAULT_TIME_LIMIT = 20
+ANIMATION_DELAY = 0.8
