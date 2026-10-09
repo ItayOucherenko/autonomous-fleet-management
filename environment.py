@@ -25,7 +25,10 @@ class AutonomousCitySimulation:
 
         display = [['.' if cell == 'P' else '#' for cell in row] for row in grid]
 
+
         for name, info in self.state['passengers'].items():
+            if info.get('served'):
+                continue
             r, c = info['location']
             display[r][c] = 'P'
 
@@ -63,17 +66,26 @@ class AutonomousCitySimulation:
 
     def apply(self, action):
         if action == "reset":
+            # FIX 2: reset restores positions, but the clock keeps running
+            time_left = self.state['time_limit']
             self.state = deepcopy(self.initial_state)
-            self.state['time_limit'] -= 1
+            self.state['time_limit'] = time_left - 1
             self.score += config.RESET_COST
             return
 
         for atomic in action:
             act_type = atomic[0]
             if act_type == 'move':
-                self.state['vehicles'][atomic[1]]['location'] = atomic[2]
+                # FIX 4: ignore moves off the grid or into a building
+                if self.is_passable(atomic[2]):
+                    self.state['vehicles'][atomic[1]]['location'] = atomic[2]
             elif act_type == 'pickup':
-                self.score += config.PASSENGER_PICKUP_REWARD
+                # FIX 1: a passenger can be picked up only once, at the vehicle's cell
+                passenger = self.state['passengers'][atomic[2]]
+                vehicle_loc = self.state['vehicles'][atomic[1]]['location']
+                if not passenger.get('served') and passenger['location'] == vehicle_loc:
+                    passenger['served'] = True
+                    self.score += config.PASSENGER_PICKUP_REWARD
 
         v_locs = [v['location'] for v in self.state['vehicles'].values()]
         h_locs = [h['trajectory'][h['index']] for h in self.state['hazards'].values()]
@@ -81,6 +93,11 @@ class AutonomousCitySimulation:
         for v_loc in v_locs:
             if v_loc in h_locs:
                 self.score += config.COLLISION_PENALTY
+
+    def is_passable(self, position):
+        grid = self.state['city_grid']
+        r, c = position
+        return 0 <= r < len(grid) and 0 <= c < len(grid[0]) and grid[r][c] == 'P'
 
     def environment_step(self):
         for p in self.state['passengers'].values():

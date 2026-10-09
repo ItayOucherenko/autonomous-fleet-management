@@ -57,11 +57,13 @@ class FleetAgent:
         return [(route[i], probability) for i in position_range if 0 <= i < len(route)]
 
     def act(self, state):
+        waiting = {p_id: p for p_id, p in state['passengers'].items() if not p.get('served')}
         def get_optimal_maneuver(available_moves):
             def calculate_move_score(move):
                 min_passenger_dist = min(
-                    abs(move[0] - p['location'][0]) + abs(move[1] - p['location'][1])
-                    for p in state['passengers'].values()
+                    (abs(move[0] - p['location'][0]) + abs(move[1] - p['location'][1])
+                     for p in waiting.values()),
+                    default=0
                 )
                 threat_level = self.assess_traffic_threat(state, move)
                 return (-min_passenger_dist, -threat_level)
@@ -70,7 +72,7 @@ class FleetAgent:
 
         def process_vehicle(vehicle_id, vehicle_info):
             current_pos = vehicle_info['location']
-            for p_id, p_info in state['passengers'].items():
+            for p_id, p_info in waiting.items():
                 if current_pos == p_info['location']:
                     return ("pickup", vehicle_id, p_id)
 
@@ -135,7 +137,7 @@ class OptimalFleetController:
         vehicle_states = [tuple(zip([v[0] for v in self.vehicles_info], positions)) for positions in
                           product(valid_positions, repeat=len(self.vehicles_info))]
 
-        passenger_combinations = [p[2] for p in self.passenger_info]
+        passenger_combinations = [list(p[2]) + [None] for p in self.passenger_info]  # None = served
         passenger_states = [tuple(zip([p[0] for p in self.passenger_info], locations)) for locations in
                             product(*passenger_combinations)]
 
@@ -145,6 +147,8 @@ class OptimalFleetController:
         return list(product(vehicle_states, passenger_states, hazard_states))
 
     def passenger_next_location(self, current_loc, possible_spots, change_prob):
+        if current_loc is None:
+            return [(None, 1.0)]
         locations_prob = {
             spot: (1 - change_prob + change_prob / len(possible_spots)) if spot == current_loc
             else change_prob / len(possible_spots)
@@ -195,15 +199,35 @@ class OptimalFleetController:
         for v_id, chosen_action in action_set:
             if chosen_action == "pickup" and active_vehicle_locations[v_id] not in passenger_locations.values():
                 return False
+        if chosen_action in self.MOVES:
+            row, col = active_vehicle_locations[v_id]
+            d_row, d_col = self.MOVES[chosen_action]
+            if not self.is_passable((row + d_row, col + d_col)):
+                return False
         return True
+
+    MOVES = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
+
+    def is_passable(self, position):
+        row, col = position
+        return (0 <= row < len(self.city_map) and 0 <= col < len(self.city_map[0])
+                and self.city_map[row][col] == 'P')
 
     def calculate_next_state_distribution(self, current_state, selected_action):
         if any(op == "reset" for _, op in selected_action): return [self.start_state], [1.0]
         if any(op == "terminate" for _, op in selected_action): return None, [1.0]
 
         updated_vehicles = self.get_new_vehicle_positions(current_state[0], selected_action)
+        vehicle_locations = dict(current_state[0])
+        passengers_after_pickup = list(current_state[1])
+        for v_id, op in selected_action:
+            if op == "pickup":
+                for i, (p_id, loc) in enumerate(current_state[1]):
+                    if loc == vehicle_locations[v_id]:
+                        passengers_after_pickup[i] = (p_id, None)
+                        break
         passenger_moves = [self.passenger_next_location(loc, self.passenger_info[idx][2], self.passenger_info[idx][3])
-                           for idx, (_, loc) in enumerate(current_state[1])]
+                           for idx, (_, loc) in enumerate(passengers_after_pickup)]
 
         hazard_moves = []
         for i, (_, current_loc) in enumerate(current_state[2]):
@@ -247,14 +271,16 @@ class OptimalFleetController:
         return tuple(updated)
 
     def calculate_reward(self, state, vehicle_actions):
-        def action_reward(action):
-            return {"pickup": config.PASSENGER_PICKUP_REWARD, "reset": config.RESET_COST}.get(action[1], 0)
-
-        base = sum(map(action_reward, vehicle_actions))
-        hazard_positions = dict(state[2])
-        penalty = sum(config.COLLISION_PENALTY for v_pos in dict(state[0]).values()
-                      for h_pos in hazard_positions.values() if h_pos == v_pos)
-        return base + penalty
+        ops = [op for _, op in vehicle_actions]
+        if "reset" in ops:
+            return config.RESET_COST
+        if "terminate" in ops:
+            return 0
+        reward = config.PASSENGER_PICKUP_REWARD * ops.count("pickup")
+        new_positions = dict(self.get_new_vehicle_positions(state[0], vehicle_actions))
+        hazard_cells = set(dict(state[2]).values())
+        reward += sum(config.COLLISION_PENALTY for pos in new_positions.values() if pos in hazard_cells)
+        return reward
 
     def act(self, state):
         current_state = self.state_from_info(state)
@@ -265,8 +291,8 @@ class OptimalFleetController:
 
         game_actions = []
         v_pos = dict((n, state["vehicles"][n]["location"]) for n, _ in self.vehicles_info)
-        p_pos = dict((n, state["passengers"][n]["location"]) for n, _, _, _ in self.passenger_info)
-
+        p_pos = dict((n, state["passengers"][n]["location"]) for n, _, _, _ in self.passenger_info
+                     if not state["passengers"][n].get("served"))
         for v_name, act in action:
             if act == "pickup":
                 target = next((p for p, loc in p_pos.items() if loc == v_pos[v_name]), None)
@@ -281,6 +307,7 @@ class OptimalFleetController:
 
     def state_from_info(self, info):
         v = tuple((n, info["vehicles"][n]["location"]) for n, _ in self.vehicles_info)
-        p = tuple((n, info["passengers"][n]["location"]) for n, _, _, _ in self.passenger_info)
+        p = tuple((n, None if info["passengers"][n].get("served") else info["passengers"][n]["location"])
+                  for n, _, _, _ in self.passenger_info)
         h = tuple((n, info["hazards"][n]["trajectory"][info["hazards"][n]["index"]]) for n, _, _ in self.hazards_info)
         return (v, p, h)
