@@ -7,13 +7,13 @@ A planning agent for autonomous vehicles on a city grid. Passengers move at rand
 `python3 benchmark.py` (seeds 0–999, reset disabled, score = 2 × pickups − collisions):
 
 | Scenario | Agent | Score | Pickups | Collisions | Solve time |
-| --- | --- | --- | --- | --- | --- |
-| Maze 6×6 | Greedy | 0.00 | 0.00 / 3 | 0.00 | – |
-| | **MDP** | **6.00** | **3.00 / 3** | 0.00 | 0.5 s |
-| Rush hour 5×5 | Greedy | 3.34 | 2.00 / 2 | 0.65 | – |
-| | **MDP** | **3.94** | 1.97 / 2 | **0.00** | 12.5 s |
-| Two cars 4×4 | Greedy | 6.00 | 3.00 / 3 | 0.00 | – |
-| | MDP | 6.00 | 3.00 / 3 | 0.00 | 13.2 s |
+| --- | --- | --- | --- | --- |------------|
+| Maze 6×6 | Greedy | 0.00 | 0.00 / 3 | 0.00 | –          |
+| | **MDP** | **6.00** | **3.00 / 3** | 0.00 | 0.5 s      |
+| Rush hour 5×5 | Greedy | 3.34 | 2.00 / 2 | 0.65 | –          |
+| | **MDP** | **3.94** | 1.97 / 2 | **0.00** | 13.2 s     |
+| Two cars 4×4 | Greedy | 6.00 | 3.00 / 3 | 0.00 | –          |
+| | MDP | 6.00 | 3.00 / 3 | 0.00 | 8.8 s      |
 
 Solve time = value iteration at start-up, measured on a MacBook Air; it will differ on other machines.
 

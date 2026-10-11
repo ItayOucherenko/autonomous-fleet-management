@@ -10,15 +10,9 @@ class FleetAgent:
     """
 
     def __init__(self, initial_config):
-        self.config = initial_config
         self.city_grid = initial_config["city_grid"]
         self.active_vehicles = list(initial_config['vehicles'].keys())
-        self.available_passengers = [
-            p_id for p_id, info in initial_config['passengers'].items()
-            if any(self.city_grid[pos[0]][pos[1]] == 'P'
-                   for pos in info.get('possible_locations', [info['location']]))
-        ]
-        self.hazards_list = list(initial_config['hazards'].keys())
+
 
     def explore_valid_trajectories(self, position):
         directions = {
@@ -204,6 +198,10 @@ class OptimalFleetController:
             d_row, d_col = self.MOVES[chosen_action]
             if not self.is_passable((row + d_row, col + d_col)):
                 return False
+        # FIX 9: two vehicles may not end a step in the same cell
+        new_cells = [pos for _, pos in self.get_new_vehicle_positions(vehicle_positions, action_set)]
+        if len(set(new_cells)) < len(new_cells):
+            return False
         return True
 
     MOVES = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
@@ -276,7 +274,16 @@ class OptimalFleetController:
             return config.RESET_COST
         if "terminate" in ops:
             return 0
-        reward = config.PASSENGER_PICKUP_REWARD * ops.count("pickup")
+        # FIX 9: each passenger counts once, even if two vehicles pick up at the same cell
+        vehicle_cells = dict(state[0])
+        picked = set()
+        for v_id, op in vehicle_actions:
+            if op == "pickup":
+                for p_id, loc in state[1]:
+                    if loc == vehicle_cells[v_id]:
+                        picked.add(p_id)
+                        break
+        reward = config.PASSENGER_PICKUP_REWARD * len(picked)
         new_positions = dict(self.get_new_vehicle_positions(state[0], vehicle_actions))
         hazard_cells = set(dict(state[2]).values())
         reward += sum(config.COLLISION_PENALTY for pos in new_positions.values() if pos in hazard_cells)
