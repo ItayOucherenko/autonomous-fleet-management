@@ -101,6 +101,8 @@ class AutonomousCitySimulation:
 
     def environment_step(self):
         for p in self.state['passengers'].values():
+            if p.get('served'):  # FIX 1: served passengers stop moving
+                continue
             if random.random() < p['prob_change_location']:
                 p['location'] = random.choice(p['possible_locations'])
 

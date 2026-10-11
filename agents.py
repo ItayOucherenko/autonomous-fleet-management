@@ -102,7 +102,7 @@ class OptimalFleetController:
                              for h_id, details in initial_config["hazards"].items()]
 
         self.options = ["up", "down", "left", "right", "wait", "pickup"]
-        if self.time_horizon > 1 and self.hazards_info:
+        if self.time_horizon > 1 and self.hazards_info and initial_config.get("allow_reset", True):
             self.options.extend(["reset", "terminate"])
 
         self.all_vehicle_actions = list(product(*[[(v_id, action) for action in self.options]

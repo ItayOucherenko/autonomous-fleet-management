@@ -1,73 +1,74 @@
-# Autonomous Fleet Management System
+# Autonomous Fleet Management under Uncertainty
 
-This project simulates an intelligent control system for a fleet of autonomous vehicles (AVs) operating in a dynamic, stochastic urban environment. It implements an Optimal Control policy using Markov Decision Processes (MDP) to manage ride requests and navigate through traffic hazards.
+A planning agent for autonomous vehicles on a city grid. Passengers move at random and traffic hazards drift along their routes. The agent models the task as a **Markov Decision Process (MDP)** and solves it with **value iteration**. It is compared with a greedy baseline over 1,000 random episodes per scenario.
 
-## Purpose
+## Results
 
-The primary goal of this project is to model real-world urban logistics where uncertainty is a key factor. Unlike static pathfinding problems, this system deals with stochastic elements: passengers may cancel or move (location uncertainty), and traffic hazards like congestion or erratic drivers behave probabilistically.
+`python3 benchmark.py` (seeds 0–999, reset disabled, score = 2 × pickups − collisions):
 
-The purpose is to fit a control model that maximizes fleet efficiency (passenger pickups) while minimizing safety risks (collisions). The end goal is to demonstrate how **Reinforcement Learning** concepts, specifically **Value Iteration**, can be applied to solve complex, multi agent navigation problems in real-time.
+| Scenario | Agent | Score | Pickups | Collisions | Solve time |
+| --- | --- | --- | --- | --- | --- |
+| Maze 6×6 | Greedy | 0.00 | 0.00 / 3 | 0.00 | – |
+| | **MDP** | **6.00** | **3.00 / 3** | 0.00 | 0.5 s |
+| Rush hour 5×5 | Greedy | 3.34 | 2.00 / 2 | 0.65 | – |
+| | **MDP** | **3.94** | 1.97 / 2 | **0.00** | 12.5 s |
+| Two cars 4×4 | Greedy | 6.00 | 3.00 / 3 | 0.00 | – |
+| | MDP | 6.00 | 3.00 / 3 | 0.00 | 13.2 s |
 
-## System Requirements
+Solve time = value iteration at start-up, measured on a MacBook Air; it will differ on other machines.
 
-To run this project locally, ensure that your environment includes the following:
-* **Python 3.8** or higher.
-* **Standard Libraries only**: No external `pip install` is required. The project uses `itertools`, `functools`, `random`, and `copy` which are built-in.
+- **Maze:** the car starts inside a U-shaped wall. Every greedy move increases the Manhattan distance, so the greedy agent waits all game. The MDP drives around the wall and serves all three passengers.
+- **Rush hour:** both agents serve the passengers, but the MDP avoids every collision (18% higher score).
+- **Two cars:** on an open map greedy is enough. The cost of planning grows fast: states and joint actions multiply with each vehicle.
 
-## Structure
+## How it works
 
-* **agents.py**: Contains the core logic for the fleet controllers:
-    * `FleetAgent`: A baseline heuristic agent.
-    * `OptimalFleetController`: The advanced agent using MDP and Value Iteration.
-* **environment.py**: The simulation engine that handles state transitions, stochastic movement of entities, and the ASCII-based visualization loop.
-* **config.py**: Centralized configuration for rewards, penalties, and simulation timing.
-* **main.py**: The entry point. Defines the scenario (grid, vehicles, passengers) and executes the simulation.
+**Environment** (`environment.py`): a grid of roads (`P`) and buildings (`I`). Each step, the agent acts, then:
+- each waiting passenger jumps with probability `prob_change_location` to one of their possible cells;
+- each hazard moves one step back, stays, or moves forward along its route, uniformly.
 
-## General Steps
+Scoring: +2 per pickup (each passenger once), −1 when a vehicle ends its move on a hazard's cell, −2 per reset.
 
-1.  **Scenario Initialization**: Define the city grid, vehicle starting positions, passenger requests, and traffic hazards in `main.py`.
-2.  **Policy Optimization**: Upon boot, the `OptimalFleetController` runs the Value Iteration algorithm to compute the optimal policy ($\pi^*$) for every possible state.
-3.  **Simulation Loop**: The environment steps forward in time.
-4.  **Action & Reaction**: The agent executes the optimal action, and the environment updates stochastically (passengers/hazards move).
-5.  **Visualization**: The state is rendered to the terminal in real-time to allow qualitative evaluation of the agent's behavior.
+**Greedy agent** (`FleetAgent`): moves to the neighbouring cell closest to a waiting passenger (Manhattan distance), breaking ties by hazard risk.
 
-## Environment & Dynamics
+**MDP agent** (`OptimalFleetController`):
+- **State:** vehicle cells, passenger cells (or "served"), hazard cells.
+- **Actions:** up, down, left, right, wait, pickup per vehicle (plus reset and terminate when enabled).
+- **Transitions:** product of the independent passenger and hazard move probabilities.
+- **Solver:** value iteration with γ = 0.95, stopping when the largest change in a sweep is below 1e-4:
 
-Before the agent can act, the environment models the stochastic nature of the city:
-* **City Grid**: Modeled as a grid where tiles can be Passable (`P`) or Impassable (`I` - buildings).
-* **Stochastic Passengers**: Passengers are not static targets. Each turn, there is a probability (defined in the scenario) that a passenger might move to a nearby coordinate or change their status, simulating real-world GPS drift or ride cancellations.
-* **Traffic Hazards**: Hazards (representing congestion or dangerous drivers) move along predefined trajectories but with stochastic deviations. They can speed up, slow down, or reverse direction probabilistically, forcing the AV to maintain safety buffers.
+  `V(s) = max_a [ R(s,a) + γ · Σ P(s'|s,a) · V(s') ]`
 
-## Algorithmic Control Approaches
+The policy is computed once at start-up and then looked up at every step.
 
-The core of the project is the transition from a naive approach to an optimal mathematical model.
+## Run it
 
-### 1. Heuristic Approach (`FleetAgent`)
-The baseline agent calculates actions based on a greedy heuristic: minimizing Manhattan distance to the nearest passenger while avoiding immediate threats. While computationally cheap, this approach often fails in complex scenarios where long-term planning is required (e.g., waiting for a hazard to pass).
+Python 3.8+, standard library only.
 
-### 2. Optimal Control via MDP (`OptimalFleetController`)
-We modeled the problem as a **Markov Decision Process (MDP)** tuple (S, A, P, R, γ):
+```bash
+python3 main.py                      # animated run of one scenario in the terminal
+python3 benchmark.py                 # results table above (~1.5 min)
+python3 benchmark.py maze_6x6 -n 200 # one scenario, fewer episodes
+```
 
-* **State Space (S)**: A composite tuple of (Vehicle Locations, Passenger Locations, Hazard States).
-* **Action Space (A)**: `{Up, Down, Left, Right, Wait, Pickup}`.
-* **Reward Function (R)**: +2 for Pickup, -1 for Collision, -2 for Reset.
-* **Bellman Equation**: We solved for the optimal value function V*(s) using Value Iteration:
+## Files
 
-    `V(s) = max_a Σ P(s'|s,a) * [R(s,a,s') + γ * V(s')]`
+| File | Contents |
+| --- | --- |
+| `agents.py` | Greedy agent and MDP agent (value iteration) |
+| `environment.py` | Simulator: rules, random moves, terminal display |
+| `scenarios.py` | Benchmark scenarios |
+| `benchmark.py` | Runs both agents over many seeded episodes without animation |
+| `main.py` | Example scenario with animation |
+| `config.py` | Rewards, penalties, time limit, animation speed |
 
-The algorithm iterates until the maximum change in value (Delta) drops below a convergence threshold (1e-4). The result is a policy that anticipates hazard movement and sacrifices immediate rewards for long-term safety and efficiency.
-## Testing & Visualization
+## Limitations
 
-We validate the model by running scenarios where the heuristic agent fails (e.g., getting trapped by stochastic hazards) while the optimal agent succeeds.
-
-**Visual Output:**
-The project includes a terminal-based visualization engine:
-* `A`: Autonomous Vehicle
-* `P`: Passenger
-* `!`: Traffic Hazard
-* `@`: Active Interaction (Pickup or Collision)
-
-The simulation displays the **Time Remaining** and **Current Score** in real-time, allowing for immediate visual verification of the fleet's performance.
+- **Planning, not learning:** the transition probabilities are given to the agent. In a real city they would have to be estimated from data (model-based RL) or learned directly (Q-learning).
+- **One policy for a fixed-length episode:** the infinite-horizon policy ignores how much time is left. Backward induction would give the exact finite-horizon policy.
+- **Scale:** exact value iteration grows exponentially with the number of vehicles. Larger fleets need decomposition per vehicle, online planning, or function approximation.
+- **No vehicle-vehicle collisions** are modelled.
 
 ## Author
+
 **Itay Oucherenko**
